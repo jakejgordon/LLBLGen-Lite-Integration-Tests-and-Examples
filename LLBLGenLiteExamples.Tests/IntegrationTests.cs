@@ -37,15 +37,15 @@ namespace LLBLGenLiteExamples.Tests
         }
 
         [Test]
-        public void UsingFromSelectWhereYieldsSameResultsAsJustDoingADotFirst()
+        public void UsingLinqYieldsSameResultsAsJustDoingADotFirst()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
             {
                 LinqMetaData metaData = new LinqMetaData(adapter);
 
                 PersonEntity person = (from p in metaData.Person
-                                           where p.Name == PERSON_JANE
-                                           select p).First();
+                                       where p.Name == PERSON_JANE
+                                       select p).First();
 
                 /*
                  * Generated Sql query: 
@@ -58,42 +58,35 @@ namespace LLBLGenLiteExamples.Tests
         }
 
         [Test]
-        public void ReferencingANonPrefetchedEntityWillStillRetrieveTheRelatedEntityCollection()
+        public void ProjectionsCanRetrieveRelatedEntitiesWithoutPrefetchingButRelationshipsAreNotPopulatedOnFetchedEntities()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
             {
                 LinqMetaData metaData = new LinqMetaData(adapter);
 
-                EntityCollection<PetEntity> result = (from person in metaData.Person
-                                    where person.Name == PERSON_JANE
-                                    //select Pets, even though it wasn't explicitly prefetched
-                                    select person.Pets)
-                                    .First();
+                var result = (from person in metaData.Person
+                              where person.Name == PERSON_JANE
+                              //select Pets, even though it wasn't explicitly prefetched
+                              select new
+                              {
+                                  Person = person,
+                                  Pets = person.Pets
+                              }).First();
 
-                //TODO Frans question
-                /* The above query compiles, but fails at runtime with the following error: 
-                     * Unable to cast object of type 
-                     * 'System.Collections.Generic.List`1[LLBLGenLiteExamples.HelperClasses.EntityCollection`1[LLBLGenLiteExamples.EntityClasses.PetEntity]]' 
-                     * to type 'LLBLGenLiteExamples.HelperClasses.EntityCollection`1[LLBLGenLiteExamples.EntityClasses.PetEntity]'.
-                 * 
+                Assert.That(result.Person, Is.Not.Null);
+                Assert.That(result.Pets, Is.Not.Empty);
+                Assert.That(result.Person.Pets, Is.Empty);
+
+                /* 
                    Generated Sql query 1: 
-	                Query: SELECT TOP(@p2) 1 AS [LPFA_2], [LPLA_1].[Id] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
-	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
-	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
+	                    Query: SELECT TOP(@p4) [LPLA_1].[Id], [LPLA_1].[Name], @p2 AS [LPFA_3], 1 AS [LPFA_4] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p5))))))
+	                    Parameter: @p2 : Int32. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                    Parameter: @p4 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                    Parameter: @p5 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
                  * 
-                 * Generated Sql query 2: 
-	                Query: SELECT [LPA_L1].[FavoritePetFoodBrandId], [LPA_L1].[Id], [LPA_L1].[Name], [LPA_L1].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]  [LPA_L1]   WHERE ( ( [LPA_L1].[OwningPersonId] = @p1))
-	                Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
-                 * 
-                 * //TODO Frans question
-                 * In this case I would have imagined that it would do something like the below query rather than breaking it into 2 separate queries like above. Why is this?
-                 * 
-                      SELECT TOP 1000 [Id]
-                          ,[Name]
-                          ,[OwningPersonId]
-                          ,[FavoritePetFoodBrandId]
-                      FROM [Examples.ExampleDbContext].[dbo].[Pet]
-                      WHERE OwningPersonId = (SELECT Id FROM Person WHERE Person.Name = 'Jane')
+                    Generated Sql query 2: 
+	                    Query: SELECT [LPA_L1].[FavoritePetFoodBrandId], [LPA_L1].[Id], [LPA_L1].[Name], [LPA_L1].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]  [LPA_L1]   WHERE ( ( [LPA_L1].[OwningPersonId] = @p1))
+	                    Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
                  * */
             }
         }
@@ -105,40 +98,44 @@ namespace LLBLGenLiteExamples.Tests
             {
                 LinqMetaData metaData = new LinqMetaData(adapter);
 
-                EntityCollection<PetEntity> result = (from person in metaData.Person.WithPath(a => a.Prefetch<PetEntity>(b => b.Pets))
-                                                      where person.Name == PERSON_JANE
-                                                      //select Pets which is explicitly prefetched
-                                                      select person.Pets).First();
+                PersonEntity result = (from person in metaData.Person.WithPath(a => a.Prefetch<PetEntity>(b => b.Pets))
+                                       where person.Name == PERSON_JANE
+                                       //select person with Pets which is explicitly prefetched
+                                       select person).First();
 
-                //TODO Frans question
+                Assert.That(result.Name, Is.EqualTo(PERSON_JANE));
+                Assert.That(result.Pets, Is.Not.Empty);
+
                 /**
-                 * The above query compiles but throws the following runtime exception: 
-                        SD.LLBLGen.Pro.ORMSupportClasses.ORMQueryExecutionException : An exception was caught during the execution of a retrieval query: The multi-part identifier "LPLA_1.Name" could not be bound.
-                        The multi-part identifier "LPLA_1.Id" could not be bound.. Check InnerException, QueryExecuted and Parameters of this exception to examine the cause of this exception.
-                          ----> System.Data.SqlClient.SqlException : The multi-part identifier "LPLA_1.Name" could not be bound.
-                 * 
                  * Generated Sql query 1: 
-	                Query: SELECT TOP(@p2) 1 AS [LPFA_2], [LPLA_1].[Id] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
+	                Query: SELECT TOP(@p2) [LPA_L1].[Id], [LPA_L1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]   WHERE ( ( ( [LPA_L1].[Name] = @p3)))
 	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
 	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
                  * 
-                 * It looks like it fails when it tries to generate/run the second query.
+                 * 
+                 * Generated Sql query 2: 
+	                Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]   WHERE ( ( ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] = @p1)))
+	                Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
+                 * 
                  */
             }
         }
 
         [Test]
-        public void SelectingASingleFieldDoesntPullBackTheEntireEntity()
+        public void SelectingASingleFieldOnlySelectsThatOneField()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
             {
                 LinqMetaData metaData = new LinqMetaData(adapter);
 
                 string name = (from p in metaData.Person
-                                       where p.Name == PERSON_JANE
-                                       select p.Name).First();
+                               where p.Name == PERSON_JANE
+                               select p.Name).First();
 
-                /*
+                Assert.That(name, Is.EqualTo(PERSON_JANE));
+
+                /* Notice the below query only selects the Name field rather than fetching the entire row
+                 * 
                  * Generated Sql query: 
 	                Query: SELECT TOP(@p2) [LPLA_1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
 	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
@@ -149,7 +146,7 @@ namespace LLBLGenLiteExamples.Tests
         }
 
         [Test]
-        public void ReferencingNonPrefetchedRelationshipsDoesntLazyLoadThoseRelationshipsAndIsNull()
+        public void ReferencingNonPrefetchedRelationshipsDoesntLazyLoadThoseRelationshipsAndIsAnEmptyCollection()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
             {
@@ -159,13 +156,8 @@ namespace LLBLGenLiteExamples.Tests
                                        where p.Name == PERSON_JANE
                                        select p).First();
 
-                EntityCollection<PetEntity> pets = person.Pets;
-                //TODO Frans question
-                //It turns out that the collection will be empty. My hunch was going to be that if it wasn't even attempted to be prefetched then it would be null
-                //and if it was prefetched but had 0 records it would be empty. Is there any way to tell when an relation was prefetched but had 0 records vs. just
-                //not prefetched at all? For example, if I had a method that accepted a PersonEntity and  I wanted to validate that the .Pets relationship was populated,
-                //how would I do this?
-                Assert.That(pets, Is.Null); //<-- not true, this is Empty instead
+                //this is empty and doesnt generate a subsequent query to go fetch it
+                Assert.That(person.Pets, Is.Empty);
 
                 /*
                  * Generated Sql query: 
@@ -173,6 +165,73 @@ namespace LLBLGenLiteExamples.Tests
 	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
 	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
                  * 
+                 * */
+            }
+        }
+
+        [Test]
+        public void PrefetchingWithAFilterThatExcludesAllRelatedEntitiesWillAlsoReturnAnEmptyCollection()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                PersonEntity result = (from person in metaData.Person
+                                                              .WithPath(a => a.Prefetch<PetEntity>(b => b.Pets)
+                                                                              .FilterOn(c => c.Id == -1))
+                                       //<-- prefetch PetEntities but filter them all out with a bogus filter for Ids that don't exist
+                                       where person.Name == PERSON_JANE
+                                       //select person with Pets which is explicitly prefetched
+                                       select person).First();
+
+                Assert.That(result.Pets, Is.Empty);
+
+                /*
+                 * Generated Sql query 1: 
+	                Query: SELECT TOP(@p2) [LPA_L1].[Id], [LPA_L1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]   WHERE ( ( ( [LPA_L1].[Name] = @p3)))
+	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
+                 * 
+                 * Generated Sql query 2: 
+	                Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]   WHERE ( ( ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] = @p1)) AND ( [Examples.ExampleDbContext].[dbo].[Pet].[Id] = @p2))
+	                Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p2 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: -1.
+                 * 
+                 * */
+            }
+        }
+
+        [Test]
+        public void PrefetchingMultipleRelationshipsGeneratesOneQueryPerNodeRatherThanACartesianMess()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                //fetch a person with all of their pets and their pets' favorite pet food brand
+                PersonEntity result = (from person in metaData.Person
+                                                              .WithPath(a => a.Prefetch<PetEntity>(b => b.Pets)
+                                                                              .SubPath(c => c.Prefetch<PetFoodBrandEntity>(d => d.PetFoodBrand)))
+                                       where person.Name == PERSON_JANE
+                                       select person).First();
+
+                Assert.IsNotEmpty(result.Pets);
+                Assert.That(result.Pets[0].PetFoodBrand, Is.Not.Null);
+
+                /**
+                 * Generated Sql query 1: 
+	                Query: SELECT TOP(@p2) [LPA_L1].[Id], [LPA_L1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]   WHERE ( ( ( [LPA_L1].[Name] = @p3)))
+	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
+                 * 
+                 * Generated Sql query 2: 
+	                Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]   WHERE ( ( ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] = @p1)))
+	                Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
+                 * 
+                    Generated Sql query 3: 
+	                    Query: SELECT [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[BrandName], [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[Id] FROM [Examples.ExampleDbContext].[dbo].[PetFoodBrand]   WHERE ( [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[Id] IN (@p1, @p2))
+	                    Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
+	                    Parameter: @p2 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 2.
                  * */
             }
         }
