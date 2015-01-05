@@ -16,6 +16,7 @@ namespace LLBLGenLiteExamples.Tests
     public class IntegrationTests
     {
         public const string PERSON_JANE = "Jane";
+        public const string PET_FLUFFY = "Fluffy";
 
         [Test]
         public void BasicQueryForOneEntity()
@@ -50,6 +51,27 @@ namespace LLBLGenLiteExamples.Tests
                 /*
                  * Generated Sql query: 
 	                Query: SELECT TOP(@p2) [LPA_L1].[Id], [LPA_L1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]   WHERE ( ( ( [LPA_L1].[Name] = @p3)))
+	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
+                 * 
+                 * */
+            }
+        }
+
+        [Test]
+        public void BasicProjection()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                String personName = (from p in metaData.Person
+                                       where p.Name == PERSON_JANE
+                                       select p.Name).First();
+
+                /*
+                 * Generated Sql query: 
+	                Query: SELECT TOP(@p2) [LPLA_1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
 	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
 	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
                  * 
@@ -122,6 +144,35 @@ namespace LLBLGenLiteExamples.Tests
         }
 
         [Test]
+        public void PrefetchDoesntWorkOnEntitiesFetchedInProjections()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                var result = (from person in metaData.Person.WithPath(a => a.Prefetch<PetEntity>(b => b.Pets))
+                              where person.Name == PERSON_JANE
+                              //select person with Pets which is explicitly prefetched
+                              select new
+                              {
+                                  Person = person
+                              }).First();
+
+                Assert.That(result.Person, Is.Not.Null);
+                Assert.That(result.Person.Pets, Is.Empty);
+
+                /** 
+                 Generated Sql query: 
+	                Query: SELECT TOP(@p4) [LPLA_1].[Id], [LPLA_1].[Name], @p2 AS [LPFA_2] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p5))))))
+	                Parameter: @p2 : Int32. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p4 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
+	                Parameter: @p5 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
+                 
+                 */
+            }
+        }
+
+        [Test]
         public void SelectingASingleFieldOnlySelectsThatOneField()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
@@ -178,13 +229,14 @@ namespace LLBLGenLiteExamples.Tests
 
                 PersonEntity result = (from person in metaData.Person
                                                               .WithPath(a => a.Prefetch<PetEntity>(b => b.Pets)
-                                                                              .FilterOn(c => c.Id == -1))
-                                       //<-- prefetch PetEntities but filter them all out with a bogus filter for Ids that don't exist
+                                                                              .FilterOn(c => c.Name == PET_FLUFFY))
+                                       //<-- prefetch PetEntities but only retrieve Fluffy
                                        where person.Name == PERSON_JANE
                                        //select person with Pets which is explicitly prefetched
                                        select person).First();
 
-                Assert.That(result.Pets, Is.Empty);
+                Assert.That(result.Pets.Count, Is.EqualTo(1));
+                Assert.That(result.Pets[0].Name, Is.EqualTo(PET_FLUFFY));
 
                 /*
                  * Generated Sql query 1: 
@@ -193,9 +245,9 @@ namespace LLBLGenLiteExamples.Tests
 	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
                  * 
                  * Generated Sql query 2: 
-	                Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]   WHERE ( ( ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] = @p1)) AND ( [Examples.ExampleDbContext].[dbo].[Pet].[Id] = @p2))
-	                Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
-	                Parameter: @p2 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: -1.
+                    Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] FROM [Examples.ExampleDbContext].[dbo].[Pet]   WHERE ( ( ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] = @p1)) AND ( [Examples.ExampleDbContext].[dbo].[Pet].[Name] = @p2))
+	                    Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
+	                    Parameter: @p2 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Fluffy".
                  * 
                  * */
             }
