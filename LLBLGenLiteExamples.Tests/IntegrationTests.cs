@@ -59,17 +59,20 @@ namespace LLBLGenLiteExamples.Tests
         }
 
         [Test]
-        public void BasicProjection()
+        public void SelectingASingleFieldOnlySelectsThatOneField()
         {
             using (DataAccessAdapter adapter = new DataAccessAdapter())
             {
                 LinqMetaData metaData = new LinqMetaData(adapter);
 
-                String personName = (from p in metaData.Person
-                                       where p.Name == PERSON_JANE
-                                       select p.Name).First();
+                string name = (from p in metaData.Person
+                               where p.Name == PERSON_JANE
+                               select p.Name).First();
 
-                /*
+                Assert.That(name, Is.EqualTo(PERSON_JANE));
+
+                /* Notice the below query only selects the Name field rather than fetching the entire row
+                 * 
                  * Generated Sql query: 
 	                Query: SELECT TOP(@p2) [LPLA_1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
 	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
@@ -172,30 +175,7 @@ namespace LLBLGenLiteExamples.Tests
             }
         }
 
-        [Test]
-        public void SelectingASingleFieldOnlySelectsThatOneField()
-        {
-            using (DataAccessAdapter adapter = new DataAccessAdapter())
-            {
-                LinqMetaData metaData = new LinqMetaData(adapter);
-
-                string name = (from p in metaData.Person
-                               where p.Name == PERSON_JANE
-                               select p.Name).First();
-
-                Assert.That(name, Is.EqualTo(PERSON_JANE));
-
-                /* Notice the below query only selects the Name field rather than fetching the entire row
-                 * 
-                 * Generated Sql query: 
-	                Query: SELECT TOP(@p2) [LPLA_1].[Name] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPLA_1]   WHERE ( ( ( ( ( ( [LPLA_1].[Name] = @p3))))))
-	                Parameter: @p2 : Int64. Length: 0. Precision: 0. Scale: 0. Direction: Input. Value: 1.
-	                Parameter: @p3 : String. Length: 2147483647. Precision: 0. Scale: 0. Direction: Input. Value: "Jane".
-                 * 
-                 * */
-            }
-        }
-
+        
         [Test]
         public void ReferencingNonPrefetchedRelationshipsDoesntLazyLoadThoseRelationshipsAndIsAnEmptyCollection()
         {
@@ -284,6 +264,30 @@ namespace LLBLGenLiteExamples.Tests
 	                    Query: SELECT [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[BrandName], [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[Id] FROM [Examples.ExampleDbContext].[dbo].[PetFoodBrand]   WHERE ( [Examples.ExampleDbContext].[dbo].[PetFoodBrand].[Id] IN (@p1, @p2))
 	                    Parameter: @p1 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 1.
 	                    Parameter: @p2 : Int32. Length: 0. Precision: 10. Scale: 0. Direction: Input. Value: 2.
+                 * */
+            }
+        }
+
+        [Test]
+        public void DemonstrateQueryThatAutomaticTuningSwitchesToSubqueryWhenGreaterThan50Predicates()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                var result = (from person in metaData.Person
+                                                              .WithPath(a => a.Prefetch<PetEntity>(b => b.Pets))
+                                       //select person with Pets which is explicitly prefetched
+                                       select person).ToList();
+
+                //notice that it uses a subquery since there are > 50 people in the database
+                /**
+                 * Generated Sql query: 
+	                Query: SELECT [Examples.ExampleDbContext].[dbo].[Pet].[FavoritePetFoodBrandId], [Examples.ExampleDbContext].[dbo].[Pet].[Id], 
+                    [Examples.ExampleDbContext].[dbo].[Pet].[Name], [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] 
+                    FROM [Examples.ExampleDbContext].[dbo].[Pet]   
+                    WHERE ( [Examples.ExampleDbContext].[dbo].[Pet].[OwningPersonId] IN 
+                     (SELECT [LPA_L1].[Id] FROM [Examples.ExampleDbContext].[dbo].[Person]  [LPA_L1]  ))
                  * */
             }
         }
