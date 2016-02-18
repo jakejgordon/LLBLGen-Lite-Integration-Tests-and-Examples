@@ -73,5 +73,23 @@ namespace LLBLGenLiteExamples.Tests
             Assert.That(nameField.IsChanged, Is.False);
             Assert.That(person.IsDirty, Is.False);
         }
+
+        [Test]
+        public void SettingAFieldToNullOnAnExistingEntityWillMakeTheEntityDirty()
+        {
+            using (DataAccessAdapter adapter = new DataAccessAdapter())
+            {
+                LinqMetaData metaData = new LinqMetaData(adapter);
+
+                PersonEntity person = (from p in metaData.Person
+                                       where p.Name == IntegrationTests.PERSON_JANE
+                                       select p).First();
+
+                Assert.That(person.IsNew, Is.False);
+                person.Name = null;
+                Assert.That(person.Fields.First(p => p.Alias == "Name").IsChanged, Is.True);
+                Assert.That(person.IsDirty, Is.True);
+            }
+        }
     }
 }
